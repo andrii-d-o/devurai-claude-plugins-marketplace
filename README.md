@@ -7,8 +7,8 @@ every repo you work in.
 Currently ships one plugin, **`test-devurai-claude-tools`**, with:
 
 - **`/verify-task`** — checks whether the current branch's diff actually implements its
-  ClickUp task, walks you through the discrepancies, and posts a summary comment back to
-  ClickUp.
+  ClickUp task, walks you through the discrepancies, and prints a summary locally.
+  Read-only on ClickUp (writing is disabled for now).
 - **`clickup-access`** skill — how to talk to ClickUp through the sandboxed `clickup`
   wrapper (used by `/verify-task`, reusable by future tools).
 
@@ -76,7 +76,8 @@ It resolves the task id (from the argument or the branch name, on the host — n
 fetches the task's description + checklists, diffs the branch against its base
 (`dev` → `develop` → `main` → `master`), classifies each requirement
 (✅ implemented / ❌ missing / ➕ out of scope / ❓ unclear), asks you **fix / skip /
-comment** per item, and — after confirmation — posts a Markdown summary to the task.
+comment** per item, and prints a Markdown summary locally. It does **not** write back to
+ClickUp — the workflow is read-only for now.
 
 > Tip: embed the task id in branch names (e.g. `feature/DEV-42-add-login`) so auto-detect
 > works reliably.

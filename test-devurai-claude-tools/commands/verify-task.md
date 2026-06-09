@@ -1,12 +1,13 @@
 ---
-description: Verify the current branch's diff against its ClickUp task and post a summary comment
+description: Verify the current branch's diff against its ClickUp task and print a summary (read-only)
 argument-hint: "[task id / URL] [working|last-commit|branch to force diff mode]"
 allowed-tools: Bash(git *), Bash(clickup *)
 ---
 
 You are running the **task↔code verification** workflow. Goal: compare what a ClickUp
 task asks for against what the code actually implements, walk the developer through the
-discrepancies, and post a summary comment back to ClickUp.
+discrepancies, and print a summary locally. This workflow is **read-only on ClickUp** —
+it never writes anything back.
 
 ClickUp access (the `clickup` wrapper, CLI commands, JSON shapes, token model,
 and safety rules) is documented in the **`clickup-access`** skill — read and follow it
@@ -102,23 +103,19 @@ Numbered list. For each ❌/➕/❓ item, ask the developer to choose:
 List ✅ items too (no decision needed) so the summary is complete. Collect all decisions
 before posting; allow free-form notes per item.
 
-## Step 6 — Post the summary comment
+## Step 6 — Print the summary (local only, for now)
 
 Build a Markdown summary: one line per requirement with status, decision, and any note.
 Include base branch, current branch, **and the diff mode used** for traceability; if any
-uncommitted work was excluded, note that too. **Confirm with the developer before
-posting** (this writes to ClickUp), then:
+uncommitted work was excluded, note that too.
 
-```
-clickup comment add <ID> "<SUMMARY MARKDOWN>"
-```
-
-Report the result (the JSON response) and print the summary locally too.
+**Print the summary to the console only — do NOT post it to ClickUp.** Posting is
+disabled for now; we stay fully read-only on ClickUp. Do not call `clickup comment add`.
 
 ## Guardrails
 
-- Read-only on ClickUp until Step 6 — `comment add` is the only write, gated on explicit
-  confirmation (see `clickup-access`).
+- Fully read-only on ClickUp — posting is disabled for now, so never call
+  `clickup comment add`; the summary is printed to the console only.
 - Never edit code here; this is verification, not implementation.
 - Don't use the CLI's GitHub `link`/PR features or its branch auto-detect — id resolution
   stays on the host (Step 1).

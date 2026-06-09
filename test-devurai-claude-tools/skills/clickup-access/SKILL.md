@@ -1,9 +1,9 @@
 ---
 name: clickup-access
 description: >-
-  How to read from and write to ClickUp via the sandboxed `clickup` wrapper
-  shipped with this plugin. Use whenever a task needs ClickUp data (task
-  details, comments, statuses) or needs to post a comment. Covers the CLI
+  How to read from ClickUp via the sandboxed `clickup` wrapper shipped with
+  this plugin. Use whenever a task needs ClickUp data (task details, comments,
+  statuses). Read-only: writing to ClickUp is disabled for now. Covers the CLI
   commands, JSON output shapes, the token/sandbox model, and the safety rules.
 ---
 
@@ -13,6 +13,11 @@ All ClickUp calls go through the **`clickup`** command — a wrapper shipped in 
 plugin's `bin/` (so it's on `PATH` while the plugin is enabled). It runs the triptech
 ClickUp CLI inside a hardened, disposable `podman` container. Never call the raw CLI
 binary or the ClickUp HTTP API directly; always go through the `clickup` wrapper.
+
+**Read-only mode.** Writing to ClickUp is disabled for now. Use only the read
+commands below — never run any command that creates, edits, or deletes data
+(comments, tasks, statuses, fields, etc.). If a workflow needs a write, stop and
+report it instead of performing it.
 
 ## Why the wrapper exists (don't bypass it)
 
@@ -36,14 +41,15 @@ binary or the ClickUp HTTP API directly; always go through the `clickup` wrapper
 
 ## Commands
 
-All read commands take `--json` and emit machine-readable JSON.
+Read-only. All commands take `--json` and emit machine-readable JSON.
 
 - `clickup task view <ID> --json` — task details: name, status, the full
   description, subtasks, checklists / acceptance criteria.
-- `clickup comment list <ID> --json` — existing comments (use to avoid
-  duplicating a prior summary).
-- `clickup comment add <ID> "<MARKDOWN BODY>"` — **post a comment. This is
-  the only write.** Markdown is supported in the body.
+- `clickup comment list <ID> --json` — existing comments.
+- `clickup version` — smoke-test; writes nothing.
+
+Write commands (e.g. `clickup comment add`, anything that creates/edits/deletes)
+are **disabled** — do not run them.
 
 `<ID>` may be a bare id (`86a3xrwkp`) or a custom id (`CU-abc123`, `DEV-42`). Always
 pass it explicitly — the wrapper never derives it.
@@ -63,7 +69,7 @@ poisons everything downstream.
 
 ## Safety rules
 
-- **Read-only by default.** `task view` / `comment list` are safe. `comment add` is
-  the only write — **always confirm with the human before posting**.
+- **Read-only.** Only `task view` / `comment list` / `version` are allowed. Never
+  run a write command (`comment add`, or anything that creates/edits/deletes).
 - If any call fails (no token, task not found, CLI error), **stop and report
-  plainly** — never fabricate task content or a successful post.
+  plainly** — never fabricate task content.

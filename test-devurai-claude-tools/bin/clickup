@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Sandboxed runner for the triptech ClickUp CLI.
+#
+# Shipped in the plugin's bin/ dir, so Claude Code puts it on PATH and it is
+# invoked as a bare `clickup ...` command while the plugin is enabled.
+#
+# The binary is built from source at a pinned, security-reviewed commit
+# (see SECURITY-REVIEW.md + Containerfile), and still run with least privilege:
+#   * NO source code is mounted in (it can't read your repo).
+#   * The API token is piped in via stdin into a tmpfs HOME and never touches
+#     host disk; the container is --rm so the auth config dies with it.
+#   * --cap-drop=ALL, no-new-privileges, read-only rootfs.
+#   * Branch->task resolution is done by the caller on the host, so this tool
+#     only ever sees an explicit task id + your ClickUp token.
+#
+# Usage: CLICKUP_TOKEN=pk_... clickup task view 86a3xrwkp --json
+set -euo pipefail
+
+IMAGE="${CLICKUP_CLI_IMAGE:-triptech-clickup:local}"
+# Plugin root (this script lives in <root>/bin/); the Containerfile sits there.
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [[ -z "${CLICKUP_TOKEN:-}" ]]; then
+  echo "error: CLICKUP_TOKEN is not set (personal ClickUp API token, pk_...)" >&2
+  exit 1
+fi
+
+if ! podman image exists "$IMAGE" 2>/dev/null; then
+  echo "building $IMAGE (one-time, pinned + checksum-verified)..." >&2
+  podman build -t "$IMAGE" -f "$HERE/Containerfile" "$HERE" >&2
+fi
+
+# `auth login --with-token` reads the token from stdin and writes config under
+# $HOME; with a tmpfs HOME that config exists only for this single run.
+exec podman run --rm -i \
+  --cap-drop=ALL \
+  --security-opt no-new-privileges \
+  --read-only \
+  --tmpfs /home/app \
+  --tmpfs /tmp \
+  -e HOME=/home/app \
+  -e CLICKUP_TOKEN \
+  --entrypoint /bin/sh \
+  "$IMAGE" \
+  -c 'printf "%s" "$CLICKUP_TOKEN" | clickup auth login --with-token >/dev/null 2>&1 \
+        && exec clickup "$@"' -- "$@"

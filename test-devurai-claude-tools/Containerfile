@@ -1,0 +1,35 @@
+# Builds the triptech ClickUp CLI FROM SOURCE at a pinned commit, inside the
+# image — we do not trust a prebuilt third-party binary. The source at this
+# commit was security-reviewed (see SECURITY-REVIEW.md): network egress is
+# ClickUp-only, the token lives in the OS keyring (ephemeral file fallback),
+# and the only os/exec calls (gh/git) sit in GitHub features we don't invoke
+# and which can't run here (no gh, no git, no repo mounted).
+#
+# The bulky API client is NOT hand-written: it's generated at build time by
+# oapi-codegen from ClickUp's official OpenAPI spec (downloaded from
+# developer.clickup.com) plus the repo's committed, readable jq/perl patches.
+#
+# Pinned by commit SHA. To bump: change COMMIT, re-review the diff, rebuild.
+FROM docker.io/library/golang:1 AS build
+ARG REPO=https://github.com/triptechtravel/clickup-cli.git
+ARG COMMIT=17625f64e18ac2a88e831a3a5d31a3ede725e0ac
+ENV GOTOOLCHAIN=auto CGO_ENABLED=0 PATH=/usr/local/go/bin:/go/bin:/usr/bin:/bin
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git jq perl make curl ca-certificates && rm -rf /var/lib/apt/lists/*
+# Code generator (OpenAPI 3.1 → typed Go client). Unpinned upstream, as the
+# project itself uses @latest; it is the one remaining build-time dependency
+# not pinned by us.
+RUN go install github.com/oapi-codegen/oapi-codegen-exp/experimental/cmd/oapi-codegen@latest
+WORKDIR /src
+RUN git clone "$REPO" . \
+ && git checkout "$COMMIT" \
+ && test "$(git rev-parse HEAD)" = "$COMMIT"
+RUN make build && ./bin/clickup version
+
+FROM docker.io/library/debian:stable-slim
+# ca-certificates only — for HTTPS to api.clickup.com. No git, no source.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/bin/clickup /usr/local/bin/clickup
+# No ENTRYPOINT: bin/clickup drives it via `sh -c` to inject the token into
+# a throwaway in-container config that never reaches host disk.

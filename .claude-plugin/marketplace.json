@@ -1,0 +1,13 @@
+{
+  "name": "devurai-claude-plugins-marketplace",
+  "owner": {
+    "name": "devurai"
+  },
+  "plugins": [
+    {
+      "name": "test-devurai-claude-tools",
+      "source": "./test-devurai-claude-tools",
+      "description": "devurai internal Claude Code toolkit."
+    }
+  ]
+}

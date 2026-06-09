@@ -1,0 +1,5 @@
+# Personal ClickUp token — never commit. Each dev exports CLICKUP_TOKEN in their shell.
+.env
+.env.*
+
+claude-documents

@@ -8,6 +8,11 @@
       "name": "test-devurai-claude-tools",
       "source": "./test-devurai-claude-tools",
       "description": "devurai internal Claude Code toolkit."
+    },
+    {
+      "name": "wiki",
+      "source": "./wiki-plugin",
+      "description": "Project-scoped wiki for decisions, patterns, and insights with semantic search (experimental, MCP/local-embeddings)."
     }
   ]
 }

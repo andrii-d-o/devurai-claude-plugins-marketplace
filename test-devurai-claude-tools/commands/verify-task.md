@@ -4,120 +4,56 @@ argument-hint: "[task id / URL] [working|last-commit|branch to force diff mode]"
 allowed-tools: Bash(git *), Bash(clickup *)
 ---
 
-You are running the **task↔code verification** workflow. Goal: compare what a ClickUp
-task asks for against what the code actually implements, walk the developer through the
-discrepancies, and print a summary locally. This workflow is **read-only on ClickUp** —
-it never writes anything back.
+Compare what a ClickUp task asks for against what the code actually implements, walk the
+developer through the gaps, and print a summary. **Read-only on ClickUp** — never writes back.
 
-ClickUp access (the `clickup` wrapper, CLI commands, JSON shapes, token model,
-and safety rules) is documented in the **`clickup-access`** skill — read and follow it
-for every ClickUp call. This file covers only the verification workflow on top of it.
+Follow the **`clickup-access`** skill for every ClickUp call (wrapper, commands, token model,
+safety). `$ARGUMENTS` may hold a task id/URL and/or a diff-mode keyword (`working`,
+`last-commit`, `branch`); anything that isn't a keyword is the id/URL.
 
-Argument passed by the user (may be empty): `$ARGUMENTS`
-It may contain a task id/URL and/or an explicit diff-mode keyword
-(`working`, `last-commit`, `branch`). Anything that isn't a mode keyword is the id/URL.
+## 1. Resolve the task id
 
-## Step 0 — Preflight
+Per `clickup-access`, stop at the first that works: explicit `$ARGUMENTS`, then the branch
+name (`CU-<id>` or `[A-Z]+-[0-9]+`). Can't get exactly one id → **ask**, never guess.
+(In trunk-based work the branch won't help; rely on the argument or the developer.)
 
-Do the `clickup-access` preflight: ensure `CLICKUP_TOKEN` is set in the environment,
-then `clickup version` to confirm the sandbox works (first run builds the image).
+## 2. Fetch the task
 
-## Step 1 — Resolve the ClickUp task id (host side, no GitHub)
+`clickup task view <ID> --json` — read name, status, the full description, and any
+checklists/acceptance criteria; show a short header. An empty description is itself a finding.
+Optionally `clickup comment list <ID> --json` to avoid repeating a prior summary.
 
-Follow the id-resolution rules in `clickup-access`. In short, stop at the first that works:
+## 3. Compute the diff
 
-1. **Explicit argument** — id/URL from `$ARGUMENTS` (strip any mode keyword first).
-2. **Branch name** — `git rev-parse --abbrev-ref HEAD`, extract a `CU-<id>` marker or a
-   `[A-Z]+-[0-9]+` custom-id pattern.
+Base branch: first existing of `dev`, `develop`, `main`, `master` (prefer `origin/<base>`).
+Use the mode forced by `$ARGUMENTS`, else auto-detect:
 
-If neither yields exactly one id — **ask the developer**, never guess. Note: in
-trunk-based work (Step 3, mode B) HEAD sits on a base branch, so branch-name detection
-won't help and the id must come from the argument or the developer.
+- **branch** (HEAD on a feature branch) → `git diff <base>...HEAD` — only what this branch changed.
+- **trunk** (HEAD on a base branch) → dirty tree: `git status --porcelain` + `git diff HEAD`
+  (read untracked files explicitly); clean tree: `git show HEAD`.
 
-## Step 2 — Fetch the task
+State the base, the mode, and why. If the chosen diff is empty, say so and offer the other
+mode. Flag any uncommitted/untracked changes you excluded. Read large diffs in sections.
 
-`clickup task view <ID> --json` and read: name, status, the **full
-description**, and any checklists/acceptance criteria. Show the developer a short header.
-If the description is empty, say so — an empty spec is itself a finding. Optionally
-`clickup comment list <ID> --json` to avoid duplicating a prior summary.
+## 4. Map requirements
 
-## Step 3 — Compute the diff (pick the mode)
+Each requirement / acceptance-criterion → one status, citing `path:line`:
+✅ Implemented · ❌ Missing · ➕ Out of scope · ❓ Unclear/partial.
+Don't invent requirements or assume code outside the diff.
 
-First pick a **base branch**: first existing of `dev`, `develop`, `main`, `master`
-(`git rev-parse --verify <name>`); prefer `origin/<base>` if more current.
+## 5. Walk the developer through it
 
-Then choose the **diff mode**. If `$ARGUMENTS` forces one (`working`/`last-commit`/
-`branch`), use it. Otherwise **auto-detect** from repo state:
+Numbered list. For each ❌/➕/❓ ask: **fix** / **skip** / **comment** (capture the note text).
+List ✅ items too. Collect all decisions before printing.
 
-- **Mode A — branch** (HEAD is on a feature branch, i.e. *not* a base branch):
-  the developer made a dedicated branch for this task.
-  ```
-  git diff <base>...HEAD --stat
-  git diff <base>...HEAD
-  ```
-  Three-dot (merge-base) diff — only what THIS branch changed.
+## 6. Print the summary (local only)
 
-- **Mode B — trunk** (HEAD *is* a base branch, e.g. work done directly on `develop`):
-  there's no feature branch, so `<base>...HEAD` is meaningless. Verify the actual edits:
-  - **Working tree dirty** → check the uncommitted work (the usual "before I commit"
-    case):
-    ```
-    git status --porcelain        # includes untracked files
-    git diff HEAD                  # staged + unstaged tracked changes
-    ```
-    Untracked files won't appear in `git diff` — list them from `status` and read the
-    relevant ones explicitly. Never let them fall through silently.
-  - **Working tree clean** → the task was finished in a commit (the "±one commit on
-    develop" case); verify the latest commit:
-    ```
-    git show HEAD --stat
-    git show HEAD
-    ```
-
-**Always state which base, which mode, and why** you chose it. If the chosen mode's diff
-is empty, say so and offer the other mode — don't silently report "nothing implemented".
-Also, whatever the mode, if there are **uncommitted/untracked** changes you did *not*
-include, flag them — they won't reach a PR and the developer should know they're excluded.
-If the diff is large, read it in sections; never truncate silently.
-
-## Step 4 — Analyze discrepancies
-
-Map each task requirement / acceptance-criterion to exactly one status:
-
-- ✅ **Implemented** — present in the diff and matches intent.
-- ❌ **Missing** — required, absent from the diff.
-- ➕ **Out of scope** — in the diff, not asked for (scope creep / stray change).
-- ❓ **Unclear / partial** — touched but ambiguous, incomplete, or possibly wrong.
-
-Cite file paths and line ranges (`path/to/file.ts:42-58`). Don't invent requirements the
-task doesn't state; don't assume code outside the diff.
-
-## Step 5 — Walk the developer through it
-
-Numbered list. For each ❌/➕/❓ item, ask the developer to choose:
-
-- **fix** — they'll change the code (note it; do not edit unless asked).
-- **skip** — intentionally not doing / acceptable as-is.
-- **comment** — leave a note on the task; capture the note text.
-
-List ✅ items too (no decision needed) so the summary is complete. Collect all decisions
-before posting; allow free-form notes per item.
-
-## Step 6 — Print the summary (local only, for now)
-
-Build a Markdown summary: one line per requirement with status, decision, and any note.
-Include base branch, current branch, **and the diff mode used** for traceability; if any
-uncommitted work was excluded, note that too.
-
-**Print the summary to the console only — do NOT post it to ClickUp.** Posting is
-disabled for now; we stay fully read-only on ClickUp. Do not call `clickup comment add`.
+Markdown, one line per requirement: status, decision, note. Include base, branch, diff mode,
+and any excluded work. **Print to console only — do NOT post to ClickUp** (writing is disabled).
 
 ## Guardrails
 
-- Fully read-only on ClickUp — posting is disabled for now, so never call
-  `clickup comment add`; the summary is printed to the console only.
-- Never edit code here; this is verification, not implementation.
-- Don't use the CLI's GitHub `link`/PR features or its branch auto-detect — id resolution
-  stays on the host (Step 1).
-- If any step fails (no token, task not found, CLI error), stop and report plainly —
-  never fabricate task content or a successful post.
+- Read-only on ClickUp; never `clickup comment add`.
+- Verification only — never edit code.
+- Id resolution stays on the host; don't use the CLI's GitHub/branch features.
+- On any failure (no token, task not found, CLI error), stop and report plainly — never fabricate.

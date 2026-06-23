@@ -6,7 +6,7 @@ description: >
   decisions, or record new insights. Trigger when: you're about to make an
   architectural decision and should check if there's prior art; the user asks
   "why did we...", "how does X work", "what's our approach to..."; you're
-  writing an implementation plan (add a /wiki step at the end); the user
+  writing an implementation plan (add a /wiki:cognite step at the end); the user
   mentions "wiki", "project knowledge", "capture this", "remember this
   decision". Also use the wiki_search MCP tool proactively when starting
   work in an unfamiliar area of the codebase.
@@ -21,9 +21,9 @@ as committed markdown files with semantic search via MCP.
 
 **If there is no `wiki/` directory in the current project root, STOP.**
 This project has not opted into the wiki. Do not suggest wiki actions,
-do not call `wiki_search`, do not add `/wiki` steps to plans. The only
-thing you should do is respond to an explicit `/wiki` command invocation
-(which handles initialization).
+do not call `wiki_search`, do not add `/wiki:cognite` steps to plans. The only
+thing you should do is respond to an explicit `/wiki:init` command invocation
+(which bootstraps the wiki).
 
 The wiki is opt-in per project. If it's not there, it doesn't exist.
 
@@ -44,19 +44,21 @@ Do this proactively when:
 - About to make a decision that might already have context
 - The user asks about project history or rationale
 
+Users can also run `/wiki:ask <question>` for an interactive, synthesized answer.
+
 ## Writing to the wiki
 
-Run `/wiki` to capture insights from the current work. The command handles
-everything: creating entries, choosing the right folder, deduplicating against
-existing content.
+Run `/wiki:cognite` to capture insights from the current work. The command
+handles everything: creating entries, choosing the right folder, deduplicating
+against existing content.
 
 When you're writing an implementation plan, include as the final step:
-> Run `/wiki` to capture decisions and patterns from this work into the project wiki.
+> Run `/wiki:cognite` to capture decisions and patterns from this work into the project wiki.
 
 ## Entry format
 
 Read `references/entry-format.md` for the full template. Key points:
-- One file per insight, in a topical subfolder (`architecture/`, `decisions/`, etc.)
+- One file per insight, in a topical subfolder — folders are created dynamically based on project needs
 - YAML frontmatter with title, tags, date, source
 - Body focuses on the **why**, not the **what**
 

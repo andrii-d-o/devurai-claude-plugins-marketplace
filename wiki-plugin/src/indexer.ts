@@ -17,7 +17,9 @@ export interface ScannedFile {
 }
 
 export function parseEntry(content: string, relativePath: string): WikiEntry {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const frontmatterMatch = content.match(
+    /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/,
+  );
 
   if (!frontmatterMatch) {
     return {
@@ -91,7 +93,11 @@ async function walkDir(
       if (!entry.name.startsWith(".")) {
         await walkDir(baseDir, fullPath, results);
       }
-    } else if (entry.name.endsWith(".md") && entry.name !== "README.md") {
+    } else if (
+      entry.name.endsWith(".md") &&
+      entry.name !== "README.md" &&
+      entry.name !== "GUIDE.md"
+    ) {
       const stats = await stat(fullPath);
       results.push({
         relativePath: path.relative(baseDir, fullPath),

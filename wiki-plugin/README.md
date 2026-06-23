@@ -11,7 +11,9 @@ and architectural insights, with semantic search via a local-embedding MCP serve
 
 | Component | What it does |
 |---|---|
-| `/wiki` command | Capture insights — natural language arguments for different sources |
+| `/wiki:init` | Bootstrap a project wiki |
+| `/wiki:cognite` | Capture insights — natural language arguments for different sources |
+| `/wiki:ask` | Query the wiki — ask questions, get synthesized answers |
 | `wiki_search` MCP tool | Semantic search over wiki entries (local embeddings, cosine similarity) |
 | SessionStart hook | Injects wiki awareness into every session (silent if no `wiki/`) |
 | `wiki` skill | Tells Claude when and how to use the wiki |
@@ -19,7 +21,7 @@ and architectural insights, with semantic search via a local-embedding MCP serve
 ## How it works
 
 1. The wiki is **opt-in per project**: nothing happens until a `wiki/` directory
-   exists. The first `/wiki` run creates it.
+   exists. Run `/wiki:init` to bootstrap it.
 2. The MCP server (`src/`) scans `wiki/`, embeds each entry locally, caches the
    vectors in `wiki/.index.json` (gitignored), and answers `wiki_search` queries
    by cosine similarity.
@@ -29,27 +31,33 @@ and architectural insights, with semantic search via a local-embedding MCP serve
 
 ```
 wiki/
-├── architecture/    # System design, infrastructure choices
-├── decisions/       # Specific choices with rationale
-├── features/        # Feature descriptions and approach
-├── patterns/        # Code patterns and conventions
-├── ideas/           # Future work and proposals
+├── <folders>/       # Created dynamically based on project needs
+│   └── *.md         # One file per insight, decision, or pattern
+├── README.md        # Human-facing explanation
+├── GUIDE.md         # Scope and style conventions for this project's wiki
 └── .index.json      # Vector index cache (gitignored)
 ```
 
-## /wiki usage
+Folders are not fixed — they're created organically as entries are written. The
+structure adapts to each project.
+
+## Commands
 
 ```
-/wiki                          # On branch: capture changes since merge-base
-                               # On main: asks what to process
-                               # First run: bootstraps wiki
+/wiki:init                             # Bootstrap wiki in current project
 
-/wiki commits since friday     # Scan recent commits
-/wiki last 10 commits          # Scan specific count
-/wiki latest                   # Walk back until wiki is current
-/wiki sessions from this week  # Mine past conversations (verified against code)
-/wiki overall                  # Snapshot current project state
-/wiki main                     # Diff current branch against main
+/wiki:cognite                          # On branch: capture changes since merge-base
+                                       # On main: asks what to process
+
+/wiki:cognite commits since friday     # Scan recent commits
+/wiki:cognite last 10 commits          # Scan specific count
+/wiki:cognite latest                   # Walk back until wiki is current
+/wiki:cognite sessions from this week  # Mine past conversations (verified against code)
+/wiki:cognite overall                  # Snapshot current project state
+/wiki:cognite main                     # Diff current branch against main
+
+/wiki:ask why did we choose postgres?  # Search wiki and synthesize an answer
+/wiki:ask how does auth work?          # Interactive Q&A over wiki entries
 ```
 
 ## Cost (why this is the "heavy" variant)
@@ -66,6 +74,7 @@ weight only as the wiki grows to hundreds of entries.
 ```bash
 cd wiki-plugin
 npm install
+npm test          # run the vitest suite
 npm run smoke     # build a temp index and run sample searches
 npm run dev       # start the MCP server on stdio
 ```

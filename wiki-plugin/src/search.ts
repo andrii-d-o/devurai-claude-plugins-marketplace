@@ -17,9 +17,21 @@ export interface SearchResult {
   score: number;
 }
 
-interface StoredIndex {
+export interface StoredIndex {
+  model: string; // embedding-space id; mismatched indexes are rebuilt
   entries: IndexedEntry[];
   files: Record<string, number>; // relativePath -> mtimeMs
+}
+
+function isStoredIndex(value: unknown): value is StoredIndex {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v["model"] === "string" &&
+    Array.isArray(v["entries"]) &&
+    typeof v["files"] === "object" &&
+    v["files"] !== null
+  );
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -57,7 +69,8 @@ export async function loadIndex(wikiDir: string): Promise<StoredIndex | null> {
   const indexPath = path.join(wikiDir, ".index.json");
   try {
     const raw = await readFile(indexPath, "utf-8");
-    return JSON.parse(raw) as StoredIndex;
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredIndex(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -92,11 +105,15 @@ export async function buildIndex(
   embedder: Embedder,
   existingIndex: StoredIndex | null,
 ): Promise<StoredIndex> {
-  const staleFiles = findStaleFiles(scannedFiles, existingIndex);
+  // Discard a stored index built with a different embedding model — its
+  // vectors live in an incompatible space and cosine scores would be garbage.
+  const compatibleIndex =
+    existingIndex && existingIndex.model === embedder.id ? existingIndex : null;
+  const staleFiles = findStaleFiles(scannedFiles, compatibleIndex);
   const staleIds = new Set(staleFiles.map((f) => f.relativePath));
 
-  const kept = existingIndex
-    ? existingIndex.entries.filter((e) => !staleIds.has(e.id))
+  const kept = compatibleIndex
+    ? compatibleIndex.entries.filter((e) => !staleIds.has(e.id))
     : [];
 
   // Drop entries for files that no longer exist
@@ -120,7 +137,7 @@ export async function buildIndex(
     files[f.relativePath] = f.mtimeMs;
   }
 
-  const index: StoredIndex = { entries: allEntries, files };
+  const index: StoredIndex = { model: embedder.id, entries: allEntries, files };
   await saveIndex(wikiDir, index);
   return index;
 }

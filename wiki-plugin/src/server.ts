@@ -5,35 +5,56 @@ import { createEmbedder, type Embedder } from "./embeddings.js";
 import { scanWikiFiles, loadEntry } from "./indexer.js";
 import { loadIndex, buildIndex, searchIndex, type IndexedEntry } from "./search.js";
 
+/** Truncate entry bodies in search results so a few large entries can't blow
+ * up the model's context window. */
+const MAX_BODY_CHARS = 1200;
+
+function truncateBody(body: string): string {
+  if (body.length <= MAX_BODY_CHARS) return body;
+  return `${body.slice(0, MAX_BODY_CHARS).trimEnd()}\n\n…[truncated]`;
+}
+
 export function createWikiServer(wikiPath: string): McpServer {
   const server = new McpServer({
     name: "wiki",
     version: "0.1.0",
   });
 
-  let embedder: Embedder | null = null;
+  let embedderPromise: Promise<Embedder> | null = null;
   let cachedEntries: IndexedEntry[] = [];
-  let lastIndexTime = 0;
+  let cachedSignature = "";
+  let inflight: Promise<IndexedEntry[]> | null = null;
 
-  async function getEmbedder(): Promise<Embedder> {
-    if (!embedder) {
-      embedder = await createEmbedder();
+  function getEmbedder(): Promise<Embedder> {
+    // Cache the promise (not the resolved value) so concurrent callers share
+    // one model load instead of each spawning their own.
+    if (!embedderPromise) {
+      embedderPromise = createEmbedder().catch((err) => {
+        embedderPromise = null; // allow retry on a later call
+        throw err;
+      });
     }
-    return embedder;
+    return embedderPromise;
   }
 
-  async function ensureIndex(): Promise<IndexedEntry[]> {
-    if (!existsSync(wikiPath)) {
-      return [];
-    }
+  /** Cheap fingerprint of the wiki tree: re-reads/re-embeds only when a file's
+   * path or mtime actually changes. */
+  function signatureOf(files: { relativePath: string; mtimeMs: number }[]): string {
+    return files
+      .map((f) => `${f.relativePath}:${f.mtimeMs}`)
+      .sort()
+      .join("|");
+  }
 
-    const now = Date.now();
-    // Re-check files at most every 5 seconds
-    if (cachedEntries.length > 0 && now - lastIndexTime < 5000) {
+  async function rebuild(): Promise<IndexedEntry[]> {
+    const scannedFiles = await scanWikiFiles(wikiPath);
+    const signature = signatureOf(scannedFiles);
+    // Nothing changed since the last build — reuse the in-memory index without
+    // re-reading file contents.
+    if (cachedSignature === signature && cachedEntries.length > 0) {
       return cachedEntries;
     }
 
-    const scannedFiles = await scanWikiFiles(wikiPath);
     const wikiEntries = await Promise.all(scannedFiles.map(loadEntry));
     const existingIndex = await loadIndex(wikiPath);
     const index = await buildIndex(
@@ -45,8 +66,21 @@ export function createWikiServer(wikiPath: string): McpServer {
     );
 
     cachedEntries = index.entries;
-    lastIndexTime = now;
+    cachedSignature = signature;
     return cachedEntries;
+  }
+
+  async function ensureIndex(): Promise<IndexedEntry[]> {
+    if (!existsSync(wikiPath)) {
+      return [];
+    }
+    // Single-flight: concurrent searches share one rebuild, preventing
+    // racing writes to .index.json.
+    if (inflight) return inflight;
+    inflight = rebuild().finally(() => {
+      inflight = null;
+    });
+    return inflight;
   }
 
   server.tool(
@@ -96,7 +130,7 @@ export function createWikiServer(wikiPath: string): McpServer {
           `## ${r.title}`,
           `File: ${r.id} | Score: ${r.score.toFixed(3)}`,
           "",
-          r.body,
+          truncateBody(r.body),
         ].join("\n"),
       );
 

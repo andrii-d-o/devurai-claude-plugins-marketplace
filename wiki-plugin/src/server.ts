@@ -9,6 +9,13 @@ import { loadIndex, buildIndex, searchIndex, type IndexedEntry } from "./search.
  * up the model's context window. */
 const MAX_BODY_CHARS = 1200;
 
+/** Cosine-similarity floor below which a hit is treated as noise rather than a
+ * match. Without it the tool always returns top_k entries, so an off-topic
+ * query gets back unrelated docs and the model can't tell "here's the answer"
+ * from "the wiki doesn't cover this". Tuned for the normalized MiniLM space:
+ * on-topic queries land well above it, clearly unrelated ones below. */
+const MIN_RELEVANCE_SCORE = 0.3;
+
 function truncateBody(body: string): string {
   if (body.length <= MAX_BODY_CHARS) return body;
   return `${body.slice(0, MAX_BODY_CHARS).trimEnd()}\n\n…[truncated]`;
@@ -123,7 +130,20 @@ export function createWikiServer(wikiPath: string): McpServer {
       }
 
       const queryEmbedding = await (await getEmbedder()).embed(query);
-      const results = searchIndex(entries, queryEmbedding, top_k);
+      const ranked = searchIndex(entries, queryEmbedding, top_k);
+      const results = ranked.filter((r) => r.score >= MIN_RELEVANCE_SCORE);
+
+      if (results.length === 0) {
+        const best = ranked[0]?.score ?? 0;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `No wiki entries are relevant to this query (best match scored ${best.toFixed(3)}, below the ${MIN_RELEVANCE_SCORE} relevance threshold). The wiki likely does not cover this topic — answer from other sources or say it is undocumented rather than inferring from unrelated entries.`,
+            },
+          ],
+        };
+      }
 
       const formatted = results.map((r) =>
         [

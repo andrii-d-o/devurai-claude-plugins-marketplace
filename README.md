@@ -4,13 +4,34 @@ A private [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugi
 for devurai's internal Claude Code tooling. Install once, get the commands and skills in
 every repo you work in.
 
-Currently ships one plugin, **`test-devurai-claude-tools`**, with:
+Currently ships two plugins:
+
+### `test-devurai-claude-tools` — ClickUp toolkit
 
 - **`/verify-task`** — checks whether the current branch's diff actually implements its
   ClickUp task, walks you through the discrepancies, and prints a summary locally.
-  Read-only on ClickUp (writing is disabled for now).
+- **`/prepare-commit`** — aligns the current changes with the ClickUp task, reviews the
+  code, stages it selectively, and prints a commit message. Stages but never commits.
+- **`/whats-here`** — prints a reference of every command and skill the plugin ships.
 - **`clickup-access`** skill — how to talk to ClickUp through the sandboxed `clickup`
-  wrapper (used by `/verify-task`, reusable by future tools).
+  wrapper (used by the commands above, reusable by future tools).
+
+All ClickUp access is **read-only** (writing is disabled for now).
+
+### `wiki` — project knowledge base (experimental)
+
+A project-scoped wiki of decisions, patterns, and architectural insights, kept as
+committed markdown with semantic search over local embeddings (MCP). **Opt-in per
+project** — dormant until a `wiki/` directory exists.
+
+- **`/wiki:init`** — bootstrap a wiki in the current project.
+- **`/wiki:cognite`** — capture insights from the current work (branch diff, commits,
+  past sessions, …).
+- **`/wiki:ask`** — query the wiki and get a synthesized answer.
+- **`wiki_search`** MCP tool + SessionStart hook + `wiki` skill — surface relevant
+  context automatically.
+
+See [wiki-plugin/README.md](wiki-plugin/README.md) for details and cost notes.
 
 ## Prerequisites
 
@@ -35,9 +56,10 @@ In Claude Code:
 ```
 /plugin marketplace add andrii-d-o/devurai-claude-plugins-marketplace
 /plugin install test-devurai-claude-tools@devurai-claude-plugins-marketplace
+/plugin install wiki@devurai-claude-plugins-marketplace          # optional
 ```
 
-The command and skill are then available in any repo you open.
+The commands and skills are then available in any repo you open.
 
 ### Or: enable it automatically per-project
 
@@ -53,7 +75,8 @@ commit a `.claude/settings.json` to that repo:
     }
   },
   "enabledPlugins": {
-    "test-devurai-claude-tools@devurai-claude-plugins-marketplace": true
+    "test-devurai-claude-tools@devurai-claude-plugins-marketplace": true,
+    "wiki@devurai-claude-plugins-marketplace": true
   }
 }
 ```
@@ -86,12 +109,23 @@ ClickUp — the workflow is read-only for now.
 
 The marketplace is a git repo, so updates are just commits to it.
 
-- **As a maintainer:** push your changes to `devurai/test-claude-plugin`. The plugin has
-  no pinned `version`, so every commit is treated as a new version (commit-SHA
+- **As a maintainer:** push your changes to `andrii-d-o/devurai-claude-plugins-marketplace`.
+  Plugins have no pinned `version`, so every commit is treated as a new version (commit-SHA
   versioning) — nothing to bump.
-- **As a user:** `autoUpdate: true` (above) pulls updates at startup and prompts a
-  `/reload-plugins`. Manually: `/plugin marketplace update devurai-claude-plugins-marketplace` then
-  `/plugin install test-devurai-claude-tools@devurai-claude-plugins-marketplace`.
+- **As a user (terminal / desktop):** `autoUpdate: true` (above) pulls updates at startup
+  and prompts a `/reload-plugins`. Manually: `/plugin marketplace update devurai-claude-plugins-marketplace`
+  then `/plugin install test-devurai-claude-tools@devurai-claude-plugins-marketplace`.
+- **As a user where `/plugin` isn't available (e.g. the VSCode extension):** the slash
+  commands are disabled there, so rely on **`autoUpdate: true`** — it pulls on startup, so
+  just restart Claude Code / reload the window. The marketplace is cached as a plain git
+  clone, so the manual fallback is to pull it yourself and restart:
+
+  ```bash
+  git -C ~/.claude/plugins/marketplaces/devurai-claude-plugins-marketplace pull
+  ```
+
+  (Skills and commands are read straight from that clone — no rebuild needed. The
+  `bin/clickup` container image only rebuilds if `Containerfile` changed.)
 
 ## Security
 
@@ -113,12 +147,19 @@ Tear down the image anytime: `podman rmi triptech-clickup:local`.
 
 ```
 .claude-plugin/marketplace.json          # marketplace catalog (this repo = the marketplace)
-test-devurai-claude-tools/               # the plugin
+test-devurai-claude-tools/               # plugin 1 — ClickUp toolkit
 ├── .claude-plugin/plugin.json           # plugin manifest
-├── commands/verify-task.md              # /verify-task slash command
+├── .claude-plugin/settings.json         # denies reads of .env* files
+├── commands/                            # /verify-task, /prepare-commit, /whats-here
 ├── skills/clickup-access/SKILL.md       # reusable ClickUp-access skill
 ├── bin/clickup                          # sandboxed ClickUp CLI wrapper (on PATH when enabled)
 └── Containerfile                        # builds the CLI from source, pinned + reviewed
+wiki-plugin/                             # plugin 2 — project wiki (experimental)
+├── .claude-plugin/plugin.json           # plugin manifest (name: wiki)
+├── commands/                            # /wiki:init, /wiki:cognite, /wiki:ask
+├── skills/wiki/SKILL.md                 # when/how to use the wiki
+├── hooks/session-start.sh               # injects wiki awareness per session
+└── src/                                 # local-embedding MCP search server
 ```
 
 ## Adding more tools
